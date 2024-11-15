@@ -1,0 +1,31 @@
+stages:
+  - unittest
+  - build
+
+unittest_py311:
+  stage: unittest
+  image: python:3.11
+  script:
+    - pip install --upgrade pip
+    - pip install --upgrade tox
+    - tox -e py311
+
+
+
+build_python:
+  stage: build
+  before_script:
+    - pip install --break-system-packages --upgrade setuptools pip twine
+  script:
+    - python setup.py bdist_wheel
+    - mv dist/*.whl .
+  artifacts:
+    paths:
+      - "*.whl"
+  after_script:
+    - TWINE_PASSWORD=${CI_JOB_TOKEN} TWINE_USERNAME=gitlab-ci-token python3 -m twine upload --repository-url ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi *.whl
+  only:
+    - tags
+  except:
+    - branches
+
