@@ -1,3 +1,5 @@
+import inspect
+
 import opentracing
 from opentracing.ext import tags
 from flask import request as flask_current_request
@@ -40,7 +42,7 @@ class FlaskTracing(opentracing.Tracer):
 
             @app.after_request
             def end_trace(response):
-                self._after_request_fn(response)
+                response = self._after_request_fn(response)
                 return response
 
             @app.teardown_request
@@ -142,23 +144,28 @@ class FlaskTracing(opentracing.Tracer):
 
     def _after_request_fn(self, response=None, error=None):
         request = flask_current_request
-
-        # the pop call can fail if the request is interrupted by a
-        # `before_request` method so we need a default
         scope = self._current_scopes.pop(request, None)
         if scope is None:
-            return
+            return response
 
-        if response is not None:
-            scope.span.set_tag(tags.HTTP_STATUS_CODE, response.status_code)
         if error is not None:
             scope.span.set_tag(tags.ERROR, True)
             scope.span.log_kv({
                 'event': tags.ERROR,
                 'error.object': error,
             })
+        else:
+            scope.span.set_tag(tags.HTTP_STATUS_CODE, 200)
 
-        scope.close()
+        if not inspect.isgenerator(response):
+            scope.close()
+            return response
+
+        def inner():
+            yield from response
+            scope.close()
+
+        return inner()
 
     def _call_start_span_cb(self, span, request):
         if self._start_span_cb is None:
