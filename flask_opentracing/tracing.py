@@ -2,7 +2,8 @@ import inspect
 
 import opentracing
 from opentracing.ext import tags
-from flask import request as flask_current_request
+from flask import request as flask_current_request, Response
+from satella.coding import run_when_iterator_completes
 
 
 class FlaskTracing(opentracing.Tracer):
@@ -87,7 +88,7 @@ class FlaskTracing(opentracing.Tracer):
                     self._after_request_fn(error=e)
                     raise
 
-                self._after_request_fn(response=r)
+                r = self._after_request_fn(response=r)
 
                 return r
 
@@ -146,7 +147,10 @@ class FlaskTracing(opentracing.Tracer):
         request = flask_current_request
         scope = self._current_scopes.pop(request, None)
         if scope is None:
-            return response
+            return None
+
+        if response is not None:
+            scope.span.set_tag(tags.HTTP_STATUS_CODE, response.status_code)
 
         if error is not None:
             scope.span.set_tag(tags.ERROR, True)
@@ -154,18 +158,14 @@ class FlaskTracing(opentracing.Tracer):
                 'event': tags.ERROR,
                 'error.object': error,
             })
-        else:
-            scope.span.set_tag(tags.HTTP_STATUS_CODE, 200)
+            scope.close()
 
-        if not inspect.isgenerator(response):
+        if not inspect.isgenerator(response.response):
             scope.close()
             return response
 
-        def inner():
-            yield from response
-            scope.close()
-
-        return inner()
+        response.response = run_when_iterator_completes(response.response, scope.close)
+        return response
 
     def _call_start_span_cb(self, span, request):
         if self._start_span_cb is None:

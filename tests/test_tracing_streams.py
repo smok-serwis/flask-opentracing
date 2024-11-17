@@ -22,12 +22,21 @@ tracing_deferred = FlaskTracing(lambda: MockTracer(),
 
 
 @app.route('/test/streams', methods=['GET'])
+@tracing.trace()
 def check_test_works():
+
+    @stream_with_context
     def test():
+        time.sleep(2)
         yield 'a'
         time.sleep(2)
         yield 'b'
-    return stream_with_context(test())
+
+    class MyResponse(Response):
+        implicit_sequence_conversion = False
+        automatically_set_content_length = False
+
+    return MyResponse(test(), status=200)
 
 
 class TestStreams(unittest.TestCase):
@@ -38,4 +47,6 @@ class TestStreams(unittest.TestCase):
 
     def test_span_tags(self):
         response = test_app.get('/test/streams')
-        assert tracing.tracer.active_span is None
+        assert len(tracing.tracer.finished_spans()) == 0
+        assert response.text == 'ab'
+        assert len(tracing.tracer.finished_spans()) == 1

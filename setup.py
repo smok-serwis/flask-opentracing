@@ -25,6 +25,7 @@ setup(
     install_requires=[
         'Flask',
         'opentracing>=2.0,<3',
+        'satella>=2.26.3'
     ],
     extras_require={
         'tests': [
